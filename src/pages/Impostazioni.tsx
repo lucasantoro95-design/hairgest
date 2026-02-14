@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Header } from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -8,6 +8,8 @@ import { useBusinesses } from '@/hooks/useBusinesses';
 import { useFiscal } from '@/hooks/useFiscal';
 import { CURRENT_YEAR, MONTHS_IT } from '@/lib/constants';
 import { exportBackup, importBackup, exportExcel } from '@/lib/backup';
+import { check, type Update } from '@tauri-apps/plugin-updater';
+import { getVersion } from '@tauri-apps/api/app';
 
 type Tab = 'profilo' | 'fiscale' | 'obiettivi' | 'backup';
 
@@ -233,6 +235,132 @@ function ObiettiviTab({ business, onUpdate }: { business: { id: number; annual_t
   );
 }
 
+function UpdateSection() {
+  const [appVersion, setAppVersion] = useState('');
+  const [checking, setChecking] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState<Update | null>(null);
+  const [phase, setPhase] = useState<'idle' | 'checking' | 'available' | 'downloading' | 'done' | 'error'>('idle');
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    getVersion().then(setAppVersion);
+  }, []);
+
+  const handleCheck = useCallback(async () => {
+    try {
+      setChecking(true);
+      setPhase('checking');
+      setError('');
+      const result = await check();
+      if (result) {
+        setUpdateAvailable(result);
+        setPhase('available');
+      } else {
+        setUpdateAvailable(null);
+        setPhase('idle');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Errore durante il controllo');
+      setPhase('error');
+    } finally {
+      setChecking(false);
+    }
+  }, []);
+
+  const handleDownload = async () => {
+    if (!updateAvailable) return;
+    try {
+      setPhase('downloading');
+      setProgress(0);
+      let contentLength = 0;
+
+      await updateAvailable.downloadAndInstall((event) => {
+        if (event.event === 'Started') {
+          contentLength = event.data.contentLength ?? 0;
+          setProgress(0);
+        } else if (event.event === 'Progress') {
+          if (contentLength > 0) {
+            setProgress(prev => Math.min(99, prev + (event.data.chunkLength / contentLength) * 100));
+          }
+        } else if (event.event === 'Finished') {
+          setProgress(100);
+        }
+      });
+
+      setPhase('done');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Errore durante l\'aggiornamento');
+      setPhase('error');
+    }
+  };
+
+  return (
+    <div className="bg-card rounded-xl border border-border p-6">
+      <h3 className="text-lg font-semibold mb-1">Aggiornamenti</h3>
+      <p className="text-sm text-muted-foreground mb-4">
+        Versione corrente: <span className="font-medium text-foreground">v{appVersion}</span>
+      </p>
+
+      {phase === 'idle' && (
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">Nessun aggiornamento trovato. L'app e' aggiornata.</p>
+          <Button onClick={handleCheck} disabled={checking}>
+            Verifica Aggiornamenti
+          </Button>
+        </div>
+      )}
+
+      {phase === 'checking' && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="h-4 w-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          Controllo in corso...
+        </div>
+      )}
+
+      {phase === 'available' && updateAvailable && (
+        <div className="space-y-3">
+          <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-3 text-sm text-blue-400">
+            Nuova versione disponibile: <strong>v{updateAvailable.version}</strong>
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={handleDownload}>Scarica e Installa</Button>
+            <Button variant="outline" onClick={handleCheck}>Ricontrolla</Button>
+          </div>
+        </div>
+      )}
+
+      {phase === 'downloading' && (
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">Download e installazione in corso. Non chiudere l'app.</p>
+          <div className="w-full bg-secondary rounded-full h-2">
+            <div className="bg-primary h-2 rounded-full transition-all" style={{ width: `${progress}%` }} />
+          </div>
+          <p className="text-xs text-muted-foreground text-center">{Math.round(progress)}%</p>
+        </div>
+      )}
+
+      {phase === 'done' && (
+        <div className="space-y-3">
+          <div className="rounded-lg bg-green-500/10 border border-green-500/20 p-3 text-sm text-green-400">
+            Aggiornamento installato con successo!
+          </div>
+          <Button onClick={() => window.location.reload()}>Riavvia App</Button>
+        </div>
+      )}
+
+      {phase === 'error' && (
+        <div className="space-y-3">
+          <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-3 text-sm text-red-400">
+            {error}
+          </div>
+          <Button variant="outline" onClick={handleCheck}>Riprova</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BackupTab({ businessId }: { businessId: number }) {
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const [status, setStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error'; message?: string }>({ type: 'idle' });
@@ -289,6 +417,9 @@ function BackupTab({ businessId }: { businessId: number }) {
           {status.message}
         </div>
       )}
+
+      {/* Aggiornamenti */}
+      <UpdateSection />
 
       {/* Export Excel */}
       <div className="bg-card rounded-xl border border-border p-6">
