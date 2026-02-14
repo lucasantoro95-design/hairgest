@@ -1,15 +1,15 @@
 import { save, open } from '@tauri-apps/plugin-dialog';
-import { readFile, writeFile, exists } from '@tauri-apps/plugin-fs';
-import { appDataDir } from '@tauri-apps/api/path';
+import { readFile, writeFile, exists, remove } from '@tauri-apps/plugin-fs';
+import { appDataDir, join } from '@tauri-apps/api/path';
 import * as XLSX from 'xlsx';
-import { getDb } from './database';
+import { getDb, resetDb } from './database';
 import { MONTHS_IT } from './constants';
 import { centsToEuro } from './utils';
 
 /** Get the full path to the hairgest.db file */
 async function getDbPath(): Promise<string> {
   const dataDir = await appDataDir();
-  return `${dataDir}hairgest.db`;
+  return join(dataDir, 'hairgest.db');
 }
 
 /** Format euro value for Excel: 1350.00 (number, not string) */
@@ -38,6 +38,10 @@ export async function exportBackup(): Promise<boolean> {
   if (!dbExists) {
     throw new Error('Database non trovato. Assicurati che l\'app sia stata avviata almeno una volta.');
   }
+
+  // Flush WAL to main DB file so the .db contains all data
+  const db = await getDb();
+  await db.execute('PRAGMA wal_checkpoint(TRUNCATE);');
 
   const data = await readFile(dbPath);
   await writeFile(dest, data);
@@ -69,15 +73,28 @@ export async function importBackup(): Promise<boolean> {
     throw new Error('Il file selezionato non e\' un database SQLite valido.');
   }
 
-  // Close the current DB connection
+  // Checkpoint current WAL (best effort — flushes pending writes)
   const db = await getDb();
-  await db.close();
+  try { await db.execute('PRAGMA wal_checkpoint(TRUNCATE);'); } catch { /* ignore */ }
 
-  // Overwrite the database file
+  // Close the DB connection and reset the singleton
+  await db.close();
+  resetDb();
+
+  // Build paths
   const dbPath = await getDbPath();
+  const dataDir = await appDataDir();
+  const walPath = await join(dataDir, 'hairgest.db-wal');
+  const shmPath = await join(dataDir, 'hairgest.db-shm');
+
+  // Remove stale WAL/SHM files so they don't corrupt the restored DB
+  try { await remove(walPath); } catch { /* file may not exist */ }
+  try { await remove(shmPath); } catch { /* file may not exist */ }
+
+  // Overwrite the database file with backup data
   await writeFile(dbPath, backupData);
 
-  // Reload the app
+  // Reload the app to re-initialize with the restored DB
   window.location.reload();
 
   return true;

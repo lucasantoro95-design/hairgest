@@ -20,6 +20,7 @@
     "fs:allow-copy-file",
     "fs:allow-appdata-read-recursive",
     "fs:allow-appdata-write-recursive",
+    "fs:allow-remove",
     "updater:default"
   ]
 }

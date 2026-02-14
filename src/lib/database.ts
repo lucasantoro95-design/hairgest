@@ -12,6 +12,11 @@ export async function getDb(): Promise<Database> {
   return db;
 }
 
+/** Reset the module-level db singleton (call after db.close()) */
+export function resetDb(): void {
+  db = null;
+}
+
 export async function initSchema(): Promise<void> {
   const d = await getDb();
 
