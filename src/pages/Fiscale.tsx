@@ -14,13 +14,23 @@ export function Fiscale() {
   const { currentBusiness } = useBusinesses();
   const businessId = currentBusiness?.id ?? 1;
   const { totalRevenueCents } = useRevenues(businessId, CURRENT_YEAR);
-  const { totalExpensesCents } = useExpenses(businessId, CURRENT_YEAR);
+  const { totalExpensesCents, expensesByCategory } = useExpenses(businessId, CURRENT_YEAR);
   const { config } = useFiscal(businessId);
 
   const fiscal = useMemo(() => {
     if (!config) return null;
     return calculateFiscalSummary(totalRevenueCents, totalExpensesCents, config);
   }, [totalRevenueCents, totalExpensesCents, config]);
+
+  const stipendioCents = useMemo(
+    () => expensesByCategory.find((c) => c.category_name === 'Stipendio')?.total_cents ?? 0,
+    [expensesByCategory]
+  );
+  const finanziamentiCents = useMemo(
+    () => expensesByCategory.find((c) => c.category_name === 'Finanziamenti')?.total_cents ?? 0,
+    [expensesByCategory]
+  );
+  const altreSpeseCents = totalExpensesCents - stipendioCents - finanziamentiCents;
 
   if (!config || !fiscal) {
     return (
@@ -143,9 +153,21 @@ export function Fiscale() {
                 <span className="text-sm font-medium">{formatCurrency(fiscal.total_revenue_cents)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">- Spese effettive</span>
-                <span className="text-sm font-medium text-destructive">-{formatCurrency(totalExpensesCents)}</span>
+                <span className="text-sm text-muted-foreground">- Spese operative</span>
+                <span className="text-sm font-medium text-destructive">-{formatCurrency(altreSpeseCents)}</span>
               </div>
+              {stipendioCents > 0 && (
+                <div className="flex justify-between pl-3">
+                  <span className="text-xs text-muted-foreground">- Stipendio</span>
+                  <span className="text-xs font-medium text-destructive">-{formatCurrency(stipendioCents)}</span>
+                </div>
+              )}
+              {finanziamentiCents > 0 && (
+                <div className="flex justify-between pl-3">
+                  <span className="text-xs text-muted-foreground">- Finanziamenti</span>
+                  <span className="text-xs font-medium text-destructive">-{formatCurrency(finanziamentiCents)}</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-sm text-muted-foreground">- Imposta sostitutiva</span>
                 <span className="text-sm font-medium text-destructive">-{formatCurrency(fiscal.tax_cents)}</span>

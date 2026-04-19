@@ -8,7 +8,7 @@ export const MONTHS_SHORT_IT = [
   'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic',
 ] as const;
 
-export const CURRENT_YEAR = 2025;
+export const CURRENT_YEAR = new Date().getFullYear();
 
 export const DEFAULT_CHANNELS = [
   { name: 'NEGOZIO', color: '#3B82F6' },
@@ -17,6 +17,8 @@ export const DEFAULT_CHANNELS = [
 
 export const DEFAULT_CATEGORIES = [
   { name: 'Affitto', color: '#EF4444' },
+  { name: 'Stipendio', color: '#A855F7' },
+  { name: 'Finanziamenti', color: '#0EA5E9' },
   { name: 'Prodotti', color: '#F59E0B' },
   { name: 'Utenze', color: '#8B5CF6' },
   { name: 'Commercialista', color: '#06B6D4' },

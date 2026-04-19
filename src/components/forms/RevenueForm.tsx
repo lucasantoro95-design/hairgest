@@ -65,7 +65,7 @@ export function RevenueForm({ channels, initialData, onSubmit, onCancel }: Reven
             onChange={(e) => setYear(Number(e.target.value))}
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
           >
-            {[2024, 2025, 2026, 2027, 2028, 2029, 2030].map((y) => (
+            {Array.from({ length: 7 }, (_, i) => CURRENT_YEAR - 2 + i).map((y) => (
               <option key={y} value={y}>{y}</option>
             ))}
           </select>

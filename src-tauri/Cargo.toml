@@ -1,6 +1,6 @@
 [package]
 name = "hairgest"
-version = "1.0.2"
+version = "1.0.4"
 description = "HairGest - Gestionale Salone"
 authors = ["HairGest"]
 license = ""

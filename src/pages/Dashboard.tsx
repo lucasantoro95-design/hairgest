@@ -26,7 +26,7 @@ export function Dashboard() {
   const businessId = currentBusiness?.id ?? 1;
   const { totalRevenueCents } = useRevenues(businessId, CURRENT_YEAR);
   const { totalExpensesCents } = useExpenses(businessId, CURRENT_YEAR);
-  const { monthlyData } = useMonthlyData(businessId, CURRENT_YEAR);
+  const { monthlyData } = useMonthlyData(businessId, CURRENT_YEAR, currentBusiness?.annual_target_cents ?? 0);
   const { config } = useFiscal(businessId);
 
   const profitCents = totalRevenueCents - totalExpensesCents;

@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -11,6 +12,7 @@ import {
   Scissors,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getVersion } from '@tauri-apps/api/app';
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -28,6 +30,12 @@ interface SidebarProps {
 }
 
 export function Sidebar({ businessName }: SidebarProps) {
+  const [version, setVersion] = useState('');
+
+  useEffect(() => {
+    getVersion().then(setVersion);
+  }, []);
+
   return (
     <aside className="w-64 min-w-64 h-screen bg-card border-r border-border flex flex-col">
       <div className="p-6 border-b border-border">
@@ -68,7 +76,7 @@ export function Sidebar({ businessName }: SidebarProps) {
 
       <div className="p-4 border-t border-border">
         <p className="text-xs text-muted-foreground text-center">
-          HairGest v1.0.0
+          HairGest {version ? `v${version}` : ''}
         </p>
       </div>
     </aside>

@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import type Database from '@tauri-apps/plugin-sql';
-import { getDb, initSchema, isDbSeeded } from '@/lib/database';
+import { getDb, initSchema, isDbSeeded, runMigrations } from '@/lib/database';
 import { seedDatabase } from '@/lib/seed';
 
 interface DatabaseContextValue {
@@ -31,6 +31,8 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
         const seeded = await isDbSeeded();
         if (!seeded) {
           await seedDatabase();
+        } else {
+          await runMigrations();
         }
 
         const database = await getDb();

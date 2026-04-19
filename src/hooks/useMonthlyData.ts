@@ -8,7 +8,7 @@ interface UseMonthlyDataReturn {
   loading: boolean;
 }
 
-export function useMonthlyData(businessId: number, year: number): UseMonthlyDataReturn {
+export function useMonthlyData(businessId: number, year: number, annualTargetCents: number = 0): UseMonthlyDataReturn {
   const { db } = useDatabase();
   const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -60,11 +60,16 @@ export function useMonthlyData(businessId: number, year: number): UseMonthlyData
         targetMap.set(row.month, row.target_cents);
       }
 
+      // Fallback: when per-month target is 0 and annual target is set,
+      // split annual/12 so dashboards don't show 0 for every month.
+      const fallbackMonthly = annualTargetCents > 0 ? Math.round(annualTargetCents / 12) : 0;
+
       // Build the 12-month array
       const data: MonthlyData[] = Array.from({ length: 12 }, (_, i) => {
         const month = i + 1;
         const revenueCents = revenueMap.get(month) ?? 0;
         const expenseCents = expenseMap.get(month) ?? 0;
+        const storedTarget = targetMap.get(month) ?? 0;
         return {
           month,
           year,
@@ -72,7 +77,7 @@ export function useMonthlyData(businessId: number, year: number): UseMonthlyData
           revenue_cents: revenueCents,
           expense_cents: expenseCents,
           profit_cents: revenueCents - expenseCents,
-          target_cents: targetMap.get(month) ?? 0,
+          target_cents: storedTarget > 0 ? storedTarget : fallbackMonthly,
         };
       });
 
@@ -80,7 +85,7 @@ export function useMonthlyData(businessId: number, year: number): UseMonthlyData
     } finally {
       setLoading(false);
     }
-  }, [db, businessId, year]);
+  }, [db, businessId, year, annualTargetCents]);
 
   useEffect(() => {
     fetchMonthlyData();

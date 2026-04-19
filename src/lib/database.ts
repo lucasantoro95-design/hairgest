@@ -1,5 +1,5 @@
 import Database from '@tauri-apps/plugin-sql';
-import { DB_NAME } from './constants';
+import { DB_NAME, DEFAULT_CATEGORIES, DEFAULT_CHANNELS, FORFETTARIO } from './constants';
 
 let db: Database | null = null;
 
@@ -128,4 +128,58 @@ export async function isDbSeeded(): Promise<boolean> {
   const d = await getDb();
   const result = await d.select<{ count: number }[]>('SELECT COUNT(*) as count FROM businesses;');
   return result[0].count > 0;
+}
+
+/**
+ * Apply idempotent migrations / repairs for existing DBs so newer releases
+ * don't leave old users missing default data (new categories, fiscal_config, channels, etc.).
+ */
+export async function runMigrations(): Promise<void> {
+  const d = await getDb();
+
+  const businesses = await d.select<{ id: number }[]>('SELECT id FROM businesses ORDER BY id ASC');
+  if (businesses.length === 0) return;
+
+  for (const b of businesses) {
+    // Ensure default channels
+    for (const ch of DEFAULT_CHANNELS) {
+      const existing = await d.select<{ id: number }[]>(
+        'SELECT id FROM revenue_channels WHERE business_id = ? AND name = ? LIMIT 1',
+        [b.id, ch.name]
+      );
+      if (existing.length === 0) {
+        await d.execute(
+          'INSERT INTO revenue_channels (business_id, name, color) VALUES (?, ?, ?)',
+          [b.id, ch.name, ch.color]
+        );
+      }
+    }
+
+    // Ensure default categories (adds new ones like Stipendio/Finanziamenti for old DBs)
+    for (const cat of DEFAULT_CATEGORIES) {
+      const existing = await d.select<{ id: number }[]>(
+        'SELECT id FROM expense_categories WHERE business_id = ? AND name = ? LIMIT 1',
+        [b.id, cat.name]
+      );
+      if (existing.length === 0) {
+        await d.execute(
+          'INSERT INTO expense_categories (business_id, name, color) VALUES (?, ?, ?)',
+          [b.id, cat.name, cat.color]
+        );
+      }
+    }
+
+    // Ensure fiscal_config exists
+    const fc = await d.select<{ id: number }[]>(
+      'SELECT id FROM fiscal_config WHERE business_id = ? LIMIT 1',
+      [b.id]
+    );
+    if (fc.length === 0) {
+      await d.execute(
+        `INSERT INTO fiscal_config (business_id, regime, profitability_coefficient, tax_rate, inps_rate, revenue_cap_cents)
+         VALUES (?, 'forfettario', ?, ?, ?, ?)`,
+        [b.id, FORFETTARIO.PROFITABILITY_COEFFICIENT, FORFETTARIO.TAX_RATE_NEW, FORFETTARIO.INPS_RATE, FORFETTARIO.REVENUE_CAP_CENTS]
+      );
+    }
+  }
 }
