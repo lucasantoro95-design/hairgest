@@ -3,7 +3,7 @@ import { readFile, writeFile, exists, remove } from '@tauri-apps/plugin-fs';
 import { appDataDir, join } from '@tauri-apps/api/path';
 import * as XLSX from 'xlsx';
 import { getDb, resetDb } from './database';
-import { MONTHS_IT, FISCAL_EXCLUDED_CHANNELS } from './constants';
+import { MONTHS_IT, FISCAL_EXCLUDED_CHANNELS, OPERATING_EXCLUDED_EXPENSE_CATEGORIES } from './constants';
 import { centsToEuro } from './utils';
 import { calculateFiscalSummary } from './calculations';
 import type { FiscalConfig } from './types';
@@ -220,6 +220,18 @@ export async function exportExcel(year: number, businessId: number = 1): Promise
   );
   const totalFiscalRevenue = fiscalRevenueRows[0]?.total_cents ?? 0;
 
+  // Spese operative (escluse Affitto e Finanziamenti) per il calcolo utile fiscale
+  const excludedCatNames = OPERATING_EXCLUDED_EXPENSE_CATEGORIES.map((n) => `'${n}'`).join(',');
+  const operatingExpRows = await db.select<{ total_cents: number }[]>(
+    `SELECT COALESCE(SUM(e.amount_cents), 0) AS total_cents
+     FROM expenses e
+     JOIN expense_categories ec ON e.category_id = ec.id
+     WHERE e.business_id = ? AND e.date >= ? AND e.date <= ?
+       AND ec.name NOT IN (${excludedCatNames})`,
+    [businessId, `${year}-01-01`, `${year}-12-31`]
+  );
+  const totalOperatingExp = operatingExpRows[0]?.total_cents ?? 0;
+
   // Pagamenti per tipo (deducibilita' INPS)
   const paidByType = {
     inps_fisso: 0,
@@ -290,7 +302,8 @@ export async function exportExcel(year: number, businessId: number = 1): Promise
 
   let fiscaleData: { 'Voce': string; 'Importo (EUR)': number | string }[];
   if (fiscalConfig) {
-    const summary = calculateFiscalSummary(totalFiscalRevenue, totalExp, fiscalConfig, paidByType);
+    const summary = calculateFiscalSummary(totalFiscalRevenue, totalOperatingExp, fiscalConfig, paidByType);
+    const totalExcludedExp = totalExp - totalOperatingExp;
     fiscaleData = [
       { 'Voce': 'Totale Incassi (incl. preventivi)', 'Importo (EUR)': euroValue(totalRev) },
       { 'Voce': 'Preventivi (esclusi dal fiscale)', 'Importo (EUR)': euroValue(totalPreventivi) },
@@ -305,7 +318,8 @@ export async function exportExcel(year: number, businessId: number = 1): Promise
       { 'Voce': 'TOTALE TASSE DOVUTE', 'Importo (EUR)': euroValue(summary.total_due_cents) },
       { 'Voce': 'Totale già pagato', 'Importo (EUR)': euroValue(summary.total_paid_cents) },
       { 'Voce': 'SALDO RESIDUO', 'Importo (EUR)': euroValue(Math.max(0, summary.total_balance_cents)) },
-      { 'Voce': 'Spese operative', 'Importo (EUR)': euroValue(totalExp) },
+      { 'Voce': 'Spese operative (escluso Affitto + Finanziamenti)', 'Importo (EUR)': euroValue(totalOperatingExp) },
+      { 'Voce': 'Spese escluse (Affitto + Finanziamenti)', 'Importo (EUR)': euroValue(totalExcludedExp) },
       { 'Voce': 'Utile Netto Stimato', 'Importo (EUR)': euroValue(summary.net_profit_cents) },
       { 'Voce': summary.reduction_35_applied ? 'Riduzione INPS 35% APPLICATA' : 'Riduzione INPS 35% non applicata', 'Importo (EUR)': '' },
     ];

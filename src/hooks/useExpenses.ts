@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { Expense, ExpenseCategory, CategoryBreakdown } from '@/lib/types';
-import { MONTHS_IT } from '@/lib/constants';
+import { MONTHS_IT, OPERATING_EXCLUDED_EXPENSE_CATEGORIES } from '@/lib/constants';
 import { useDatabase } from './useDatabase';
 
 interface ExpenseInput {
@@ -18,7 +18,12 @@ interface UseExpensesReturn {
   addExpense: (data: ExpenseInput) => Promise<void>;
   updateExpense: (id: number, data: ExpenseInput) => Promise<void>;
   deleteExpense: (id: number) => Promise<void>;
+  /** Totale di TUTTE le spese inserite (include affitto, finanziamenti, ecc.) */
   totalExpensesCents: number;
+  /** Spese operative: totale - categorie escluse (Affitto, Finanziamenti). Usato in Fiscale > Riepilogo. */
+  operatingExpensesCents: number;
+  /** Totale spese delle categorie escluse (Affitto + Finanziamenti) */
+  excludedExpensesCents: number;
   expensesByCategory: CategoryBreakdown[];
   expensesByMonth: { month: number; month_label: string; total_cents: number }[];
 }
@@ -92,6 +97,17 @@ export function useExpenses(businessId: number, year: number): UseExpensesReturn
     return expenses.reduce((sum, e) => sum + e.amount_cents, 0);
   }, [expenses]);
 
+  const excludedExpensesCents = useMemo(() => {
+    return expenses
+      .filter((e) => e.category_name && OPERATING_EXCLUDED_EXPENSE_CATEGORIES.includes(e.category_name))
+      .reduce((sum, e) => sum + e.amount_cents, 0);
+  }, [expenses]);
+
+  const operatingExpensesCents = useMemo(
+    () => totalExpensesCents - excludedExpensesCents,
+    [totalExpensesCents, excludedExpensesCents]
+  );
+
   const expensesByCategory = useMemo((): CategoryBreakdown[] => {
     const map = new Map<number, CategoryBreakdown>();
     for (const e of expenses) {
@@ -138,6 +154,8 @@ export function useExpenses(businessId: number, year: number): UseExpensesReturn
     updateExpense,
     deleteExpense,
     totalExpensesCents,
+    operatingExpensesCents,
+    excludedExpensesCents,
     expensesByCategory,
     expensesByMonth,
   };

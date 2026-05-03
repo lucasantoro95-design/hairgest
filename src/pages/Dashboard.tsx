@@ -26,7 +26,7 @@ export function Dashboard() {
   const { currentBusiness } = useBusinesses();
   const businessId = currentBusiness?.id ?? 1;
   const { totalRevenueCents, fiscalRevenueCents } = useRevenues(businessId, CURRENT_YEAR);
-  const { totalExpensesCents } = useExpenses(businessId, CURRENT_YEAR);
+  const { totalExpensesCents, operatingExpensesCents } = useExpenses(businessId, CURRENT_YEAR);
   const { monthlyData } = useMonthlyData(businessId, CURRENT_YEAR, currentBusiness?.annual_target_cents ?? 0);
   const { config } = useFiscal(businessId);
   const { paidByType } = useTaxPayments(businessId, CURRENT_YEAR);
@@ -35,10 +35,11 @@ export function Dashboard() {
   const targetCents = currentBusiness?.annual_target_cents ?? 0;
   const progressPct = targetCents > 0 ? Math.min(100, (totalRevenueCents / targetCents) * 100) : 0;
 
+  // Utile netto stimato (fiscale): usa fatturato fiscale + spese operative (escluso affitto/finanziamenti)
   const fiscal = useMemo(() => {
     if (!config) return null;
-    return calculateFiscalSummary(fiscalRevenueCents, totalExpensesCents, config, paidByType);
-  }, [fiscalRevenueCents, totalExpensesCents, config, paidByType]);
+    return calculateFiscalSummary(fiscalRevenueCents, operatingExpensesCents, config, paidByType);
+  }, [fiscalRevenueCents, operatingExpensesCents, config, paidByType]);
 
   return (
     <div>

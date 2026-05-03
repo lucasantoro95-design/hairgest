@@ -16,6 +16,16 @@ export const PREVENTIVI_CHANNEL = 'PREVENTIVI';
 /** Canali esclusi dal calcolo fiscale (fatturato fiscale = incassi totali - questi canali) */
 export const FISCAL_EXCLUDED_CHANNELS: readonly string[] = [PREVENTIVI_CHANNEL];
 
+/**
+ * Categorie di spesa NON considerate "operative" — escluse dal calcolo dell'utile netto fiscale.
+ * - Affitto: costo immobile non operativo
+ * - Finanziamenti: rimborso capitale/interessi (movimento finanziario, non gestionale)
+ *
+ * Le spese di queste categorie restano visibili in pagina Spese e nei report,
+ * ma non sottratte nella sezione Fiscale > Riepilogo Annuo.
+ */
+export const OPERATING_EXCLUDED_EXPENSE_CATEGORIES: readonly string[] = ['Affitto', 'Finanziamenti'];
+
 export const DEFAULT_CHANNELS = [
   { name: 'NEGOZIO', color: '#3B82F6' },
   { name: PREVENTIVI_CHANNEL, color: '#10B981' },

@@ -5,6 +5,7 @@ import {
   Calculator,
   Receipt,
   Settings as SettingsIcon,
+  Filter,
 } from 'lucide-react';
 
 export interface WhatsNewStep {
@@ -28,6 +29,24 @@ export interface WhatsNewContent {
  * (vedi WhatsNew.tsx) la prima volta che l'utente avvia dopo l'aggiornamento.
  */
 export const WHATS_NEW: Record<string, WhatsNewContent> = {
+  '1.0.7': {
+    version: '1.0.7',
+    steps: [
+      {
+        icon: Filter,
+        accent: 'blue',
+        title: 'Riepilogo fiscale piu' + ' preciso',
+        description:
+          'Le spese di Affitto e Finanziamenti non sono piu' + ' considerate come spese operative nel riepilogo fiscale, perche' + ' non riflettono la gestione corrente dell\'attivita\'.',
+        bullets: [
+          'Affitto: costo immobile, escluso dal calcolo utile operativo',
+          'Finanziamenti: rimborso capitale/interessi, escluso',
+          'Restano comunque visibili in pagina Spese e nei report mensili',
+          "L'utile netto stimato in Fiscale ora riflette solo le spese di gestione",
+        ],
+      },
+    ],
+  },
   '1.0.6': {
     version: '1.0.6',
     steps: [

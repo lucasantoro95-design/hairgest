@@ -35,7 +35,7 @@ export function Fiscale() {
   const { currentBusiness } = useBusinesses();
   const businessId = currentBusiness?.id ?? 1;
   const { fiscalRevenueCents, preventiviRevenueCents } = useRevenues(businessId, CURRENT_YEAR);
-  const { totalExpensesCents } = useExpenses(businessId, CURRENT_YEAR);
+  const { operatingExpensesCents, excludedExpensesCents } = useExpenses(businessId, CURRENT_YEAR);
   const { config } = useFiscal(businessId);
   const { payments, addPayment, updatePayment, deletePayment, paidByType } = useTaxPayments(businessId, CURRENT_YEAR);
 
@@ -45,8 +45,8 @@ export function Fiscale() {
 
   const fiscal = useMemo(() => {
     if (!config) return null;
-    return calculateFiscalSummary(fiscalRevenueCents, totalExpensesCents, config, paidByType);
-  }, [fiscalRevenueCents, totalExpensesCents, config, paidByType]);
+    return calculateFiscalSummary(fiscalRevenueCents, operatingExpensesCents, config, paidByType);
+  }, [fiscalRevenueCents, operatingExpensesCents, config, paidByType]);
 
   // Prossima scadenza INPS fissa
   const nextDeadline = useMemo(() => {
@@ -133,9 +133,10 @@ export function Fiscale() {
           <p className="text-sm font-medium text-amber-800">Disclaimer</p>
           <p className="text-xs text-amber-700 mt-1">
             Stime indicative basate sulla Circolare INPS n. 14/2026 (gestione artigiani) e sul regime forfettario.
-            I preventivi <strong>non sono inclusi nel fatturato fiscale</strong>. I contributi INPS effettivamente
-            pagati nell'anno sono dedotti dall'imponibile prima del calcolo dell'imposta sostitutiva (principio di cassa).
-            Consulta sempre il commercialista per la dichiarazione definitiva.
+            I preventivi <strong>non sono inclusi nel fatturato fiscale</strong>. Le spese di
+            <strong> Affitto e Finanziamenti </strong> non concorrono alle spese operative del riepilogo.
+            I contributi INPS effettivamente pagati nell'anno sono dedotti dall'imponibile prima del calcolo
+            dell'imposta sostitutiva (principio di cassa). Consulta sempre il commercialista per la dichiarazione definitiva.
           </p>
         </div>
       </div>
@@ -346,8 +347,13 @@ export function Fiscale() {
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-muted-foreground">- Spese operative</span>
-                <span className="text-sm font-medium text-destructive">-{formatCurrency(totalExpensesCents)}</span>
+                <span className="text-sm font-medium text-destructive">-{formatCurrency(operatingExpensesCents)}</span>
               </div>
+              {excludedExpensesCents > 0 && (
+                <div className="flex justify-between pl-3">
+                  <span className="text-xs text-muted-foreground italic">(escluse: Affitto + Finanziamenti = {formatCurrency(excludedExpensesCents)})</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-sm text-muted-foreground">- Imposta sostitutiva</span>
                 <span className="text-sm font-medium text-destructive">-{formatCurrency(fiscal.tax_due_cents)}</span>
