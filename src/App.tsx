@@ -10,6 +10,7 @@ import { Fiscale } from '@/pages/Fiscale';
 import { Proiezioni } from '@/pages/Proiezioni';
 import { Impostazioni } from '@/pages/Impostazioni';
 import { UpdateChecker } from '@/components/shared/UpdateChecker';
+import { WhatsNew } from '@/components/shared/WhatsNew';
 import { Loader2 } from 'lucide-react';
 
 function AppContent() {
@@ -40,6 +41,7 @@ function AppContent() {
   return (
     <>
     <UpdateChecker />
+    <WhatsNew />
     <BrowserRouter>
       <Routes>
         <Route element={<AppLayout />}>
