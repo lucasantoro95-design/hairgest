@@ -52,7 +52,14 @@ formatCurrency(3450) // → "34,50 €" (Italian locale)
 
 ### Database Schema
 
-7 tables, all keyed by `business_id`. Revenues use `month`/`year` integers; expenses use `date` (YYYY-MM-DD string). Schema created in `lib/database.ts:initSchema()`, seeded in `lib/seed.ts`.
+8 tables, all keyed by `business_id`: businesses, revenue_channels, expense_categories, revenues, expenses, monthly_targets, fiscal_config, **tax_payments** (v1.0.5+). Revenues use `month`/`year` integers; expenses use `date` (YYYY-MM-DD string). Schema created in `lib/database.ts:initSchema()`, seeded in `lib/seed.ts`.
+
+**CRITICO — Migrazioni e dati cliente:**
+- `runMigrations()` viene eseguita ad ogni avvio per DB esistenti.
+- Tutte le operazioni devono essere **idempotenti** (`columnExists()` check, `INSERT IGNORE`-pattern, `UPDATE` solo se la condizione di migrazione e' valida).
+- **Mai** eseguire `DROP COLUMN`, `DROP TABLE`, o `DELETE FROM` su dati cliente in migration.
+- Prima di ogni `runMigrations()` viene fatto un **backup automatico** del DB tramite `preMigrationBackup()` (`lib/preMigrationBackup.ts`): copia in `appDataDir` come `hairgest.db.backup-pre-vX.Y.Z`. Idempotente: se gia' esiste per la versione corrente, skip.
+- I clienti hanno dati di produzione reali. Una migration sbagliata = soldi reali persi. Misurare due volte, tagliare una.
 
 ### Hook Pattern
 
@@ -68,7 +75,23 @@ React Router v7 in `App.tsx`. All pages render inside `<AppLayout>` (Sidebar + H
 
 ### Italian UI
 
-All labels, months (`MONTHS_IT`), currency formatting use Italian locale. The fiscal module implements regime forfettario (67% coefficient, 5%/15% tax, 24% INPS).
+All labels, months (`MONTHS_IT`), currency formatting use Italian locale.
+
+### Modulo Fiscale (CRITICO)
+
+**Documentazione completa in `docs/FISCAL.md`** — leggere SEMPRE prima di toccare qualunque cosa relativa a calcolo tasse, INPS, imponibile, deducibilita'.
+
+Punti chiave (mai sgarrare):
+- Fatturato fiscale = incassi totali **escluso `FISCAL_EXCLUDED_CHANNELS`** (default: `['PREVENTIVI']`).
+- Spese operative = spese totali **escluso `OPERATING_EXCLUDED_EXPENSE_CATEGORIES`** (default: `['Affitto', 'Finanziamenti']`).
+- INPS = **fisso annuo** (4.521,36 EUR 2026, sempre dovuto) + **variabile a scaglioni** (24% sopra minimale 18.808, 25% oltre 56.224). Riferimento: Circolare INPS n. 14/2026.
+- Imposta sostitutiva = (imponibile_lordo - **INPS pagato nell'anno**) × aliquota. **Principio di cassa**: solo i contributi effettivamente pagati sono deducibili.
+- Tutti i parametri INPS sono editabili dall'utente in Impostazioni > Fiscale (ogni anno cambiano).
+- Quando esce la nuova Circolare INPS, aggiornare `INPS_ARTIGIANI_2026` in `lib/constants.ts` + scadenze + `docs/FISCAL.md`.
+
+### What's New modal
+
+`src/components/shared/WhatsNew.tsx` mostra al primo avvio dopo update un tutorial multi-step. Contenuto in `src/lib/whatsNew.ts` (chiave = versione, valori = step). **Ogni nuova release deve aggiungere una entry** in `WHATS_NEW` con icona Lucide, accent color, titolo, descrizione e bullet points. Tracking via `localStorage` chiave `hairgest_last_seen_version`.
 
 ## Release: Staging + Produzione
 
@@ -80,25 +103,34 @@ Il workflow GitHub Actions ha `releaseDraft: true`: ogni `git push --tags` crea 
 
 Quando l'utente dice **"testiamo"** (o varianti: "facciamo staging", "prepariamo release", "test build"):
 
-1. **Bump versione** — Chiedere all'utente la nuova versione (o proporre patch/minor/major). Aggiornare in 3 file:
+1. **Bump versione** — Chiedere all'utente la nuova versione (o proporre patch/minor/major). Aggiornare in **4 posti**:
    - `src-tauri/tauri.conf.json`
    - `package.json`
    - `src-tauri/Cargo.toml`
+   - `src-tauri/Cargo.lock` (la entry `name = "hairgest"`, altrimenti il build Rust fallisce)
 
-2. **Commit** — Messaggio: `Release vX.Y.Z`
+2. **Aggiungere entry in `src/lib/whatsNew.ts`** — `WHATS_NEW['X.Y.Z']` con icona Lucide, accent, titolo, descrizione, bullets. **Mai saltare questo step**: l'utente lo vuole tutorial-style ad ogni release.
 
-3. **Tag + push**:
+3. **Aggiornare `CHANGELOG.md`** con la nuova versione e la data (formato Keep a Changelog).
+
+4. **Build di verifica locale**: `npm run build` per beccare errori TypeScript prima del push.
+
+5. **Commit** — Messaggio: `Release vX.Y.Z - <descrizione breve>`
+
+6. **Tag + push**:
    ```bash
    git tag vX.Y.Z
    git push && git push --tags
    ```
 
-4. **Verifica workflow**:
+7. **Verifica workflow**:
    ```bash
    gh run list --repo lucasantoro95-design/hairgest --limit 1
    ```
 
-5. **Comunicare all'utente**: la build è in corso (~10 min). Quando finisce troverà il `.dmg` su https://github.com/lucasantoro95-design/hairgest/releases (sezione "Drafts"). Scarica, testa, poi dice "aggiorniamo" per pubblicare.
+8. **Comunicare all'utente**: la build è in corso (~6-10 min). Quando finisce troverà il `.dmg` nella sezione **Drafts** delle Releases GitHub. Scarica, testa, poi dice "aggiorniamo" per pubblicare.
+
+9. **Opzionale (consigliato)**: monitorare la build in background con `gh run view <id> --json status` in un loop, e avvisare l'utente quando completa.
 
 ### Comando "aggiorniamo" — pubblica la bozza
 
@@ -152,6 +184,12 @@ Per il rollback **lato sviluppatore** (riportare il codice locale indietro) bast
 - Pubblicare la bozza con `gh release edit ... --draft=false --latest` rende `latest.json` accessibile e attiva l'update lato client
 - La chiave privata locale è in `~/.tauri/hairgest.key` (password: `hairgest2025`)
 - Repo GitHub: `lucasantoro95-design/hairgest`
+
+## Documentazione
+
+- **`CHANGELOG.md`** — storia delle versioni (Keep a Changelog format). Aggiornare ad ogni release.
+- **`docs/FISCAL.md`** — regole di calcolo fiscale (formule, normativa, fonti). LEGGERE prima di toccare il modulo fiscale.
+- **`docs/BRD-HairGest.md`** — Business Requirements Document originale.
 
 ### Build locale con firma (se necessario)
 
