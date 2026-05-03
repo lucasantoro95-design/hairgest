@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { Revenue, RevenueChannel, ChannelBreakdown } from '@/lib/types';
-import { MONTHS_IT } from '@/lib/constants';
+import { MONTHS_IT, FISCAL_EXCLUDED_CHANNELS } from '@/lib/constants';
 import { useDatabase } from './useDatabase';
 
 interface RevenueInput {
@@ -18,7 +18,12 @@ interface UseRevenuesReturn {
   addRevenue: (data: RevenueInput) => Promise<void>;
   updateRevenue: (id: number, data: RevenueInput) => Promise<void>;
   deleteRevenue: (id: number) => Promise<void>;
+  /** Totale di tutti gli incassi (NEGOZIO + PREVENTIVI + altri canali). Usato in pagina Incassi/Pie chart. */
   totalRevenueCents: number;
+  /** Fatturato fiscale: esclude i canali in FISCAL_EXCLUDED_CHANNELS (PREVENTIVI). Usato per calcoli fiscali. */
+  fiscalRevenueCents: number;
+  /** Incassi dei soli canali esclusi dal fiscale (PREVENTIVI). */
+  preventiviRevenueCents: number;
   revenueByChannel: ChannelBreakdown[];
   revenueByMonth: { month: number; month_label: string; total_cents: number }[];
 }
@@ -91,6 +96,17 @@ export function useRevenues(businessId: number, year: number): UseRevenuesReturn
     return revenues.reduce((sum, r) => sum + r.amount_cents, 0);
   }, [revenues]);
 
+  const preventiviRevenueCents = useMemo(() => {
+    return revenues
+      .filter((r) => r.channel_name && FISCAL_EXCLUDED_CHANNELS.includes(r.channel_name))
+      .reduce((sum, r) => sum + r.amount_cents, 0);
+  }, [revenues]);
+
+  const fiscalRevenueCents = useMemo(
+    () => totalRevenueCents - preventiviRevenueCents,
+    [totalRevenueCents, preventiviRevenueCents]
+  );
+
   const revenueByChannel = useMemo((): ChannelBreakdown[] => {
     const map = new Map<number, ChannelBreakdown>();
     for (const r of revenues) {
@@ -136,6 +152,8 @@ export function useRevenues(businessId: number, year: number): UseRevenuesReturn
     updateRevenue,
     deleteRevenue,
     totalRevenueCents,
+    fiscalRevenueCents,
+    preventiviRevenueCents,
     revenueByChannel,
     revenueByMonth,
   };

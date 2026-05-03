@@ -3,8 +3,10 @@ import { readFile, writeFile, exists, remove } from '@tauri-apps/plugin-fs';
 import { appDataDir, join } from '@tauri-apps/api/path';
 import * as XLSX from 'xlsx';
 import { getDb, resetDb } from './database';
-import { MONTHS_IT } from './constants';
+import { MONTHS_IT, FISCAL_EXCLUDED_CHANNELS } from './constants';
 import { centsToEuro } from './utils';
+import { calculateFiscalSummary } from './calculations';
+import type { FiscalConfig } from './types';
 
 /** Get the full path to the hairgest.db file */
 async function getDbPath(): Promise<string> {
@@ -125,16 +127,24 @@ interface MonthlyExpense {
   total_cents: number;
 }
 
-interface FiscalRow {
-  profitability_coefficient: number;
-  tax_rate: number;
-  inps_rate: number;
-}
-
 interface TargetRow {
   month: number;
   target_cents: number;
 }
+
+interface TaxPaymentRow {
+  payment_date: string;
+  type: 'inps_fisso' | 'inps_variabile' | 'imposta_sostitutiva' | 'altro';
+  amount_cents: number;
+  notes: string;
+}
+
+const TAX_PAYMENT_LABELS: Record<TaxPaymentRow['type'], string> = {
+  inps_fisso: 'INPS Fisso',
+  inps_variabile: 'INPS Variabile',
+  imposta_sostitutiva: 'Imposta Sostitutiva',
+  altro: 'Altro',
+};
 
 /**
  * Export all data for a given year as an Excel file.
@@ -179,8 +189,8 @@ export async function exportExcel(year: number, businessId: number = 1): Promise
     [businessId, `${year}-01-01`, `${year}-12-31`]
   );
 
-  const fiscalRows = await db.select<FiscalRow[]>(
-    `SELECT profitability_coefficient, tax_rate, inps_rate FROM fiscal_config WHERE business_id = ?`,
+  const fiscalConfigRows = await db.select<FiscalConfig[]>(
+    `SELECT * FROM fiscal_config WHERE business_id = ?`,
     [businessId]
   );
 
@@ -189,7 +199,37 @@ export async function exportExcel(year: number, businessId: number = 1): Promise
     [businessId, year]
   );
 
-  const fiscal = fiscalRows[0] ?? { profitability_coefficient: 67, tax_rate: 5, inps_rate: 24 };
+  const taxPayments = await db.select<TaxPaymentRow[]>(
+    `SELECT payment_date, type, amount_cents, notes
+     FROM tax_payments
+     WHERE business_id = ? AND year = ?
+     ORDER BY payment_date ASC`,
+    [businessId, year]
+  );
+
+  const fiscalConfig = fiscalConfigRows[0];
+
+  // Fatturato fiscale (esclude PREVENTIVI) per il calcolo tasse
+  const excludedNames = FISCAL_EXCLUDED_CHANNELS.map((n) => `'${n}'`).join(',');
+  const fiscalRevenueRows = await db.select<{ total_cents: number }[]>(
+    `SELECT COALESCE(SUM(r.amount_cents), 0) AS total_cents
+     FROM revenues r
+     JOIN revenue_channels rc ON r.channel_id = rc.id
+     WHERE r.business_id = ? AND r.year = ? AND rc.name NOT IN (${excludedNames})`,
+    [businessId, year]
+  );
+  const totalFiscalRevenue = fiscalRevenueRows[0]?.total_cents ?? 0;
+
+  // Pagamenti per tipo (deducibilita' INPS)
+  const paidByType = {
+    inps_fisso: 0,
+    inps_variabile: 0,
+    imposta_sostitutiva: 0,
+    altro: 0,
+  };
+  for (const p of taxPayments) {
+    paidByType[p.type] += p.amount_cents;
+  }
 
   // Build revenue map and expense map by month
   const revMap = new Map<number, number>();
@@ -245,21 +285,44 @@ export async function exportExcel(year: number, businessId: number = 1): Promise
     'Obiettivo (EUR)': euroValue(totalTarget),
   });
 
-  // --- Sheet 4: Fiscale ---
-  const taxableIncome = Math.round(totalRev * fiscal.profitability_coefficient / 100);
-  const tax = Math.round(taxableIncome * fiscal.tax_rate / 100);
-  const inps = Math.round(taxableIncome * fiscal.inps_rate / 100);
-  const net = totalRev - totalExp - tax - inps;
+  // --- Sheet 4: Fiscale (con calcolo INPS a scaglioni e deducibilita') ---
+  const totalPreventivi = totalRev - totalFiscalRevenue;
 
-  const fiscaleData = [
-    { 'Voce': 'Fatturato Annuo', 'Importo (EUR)': euroValue(totalRev) },
-    { 'Voce': `Reddito Imponibile (${fiscal.profitability_coefficient}%)`, 'Importo (EUR)': euroValue(taxableIncome) },
-    { 'Voce': `Imposta Sostitutiva (${fiscal.tax_rate}%)`, 'Importo (EUR)': euroValue(tax) },
-    { 'Voce': `Contributi INPS (${fiscal.inps_rate}%)`, 'Importo (EUR)': euroValue(inps) },
-    { 'Voce': 'Totale Tasse e Contributi', 'Importo (EUR)': euroValue(tax + inps) },
-    { 'Voce': 'Spese Totali', 'Importo (EUR)': euroValue(totalExp) },
-    { 'Voce': 'Utile Netto Stimato', 'Importo (EUR)': euroValue(net) },
-  ];
+  let fiscaleData: { 'Voce': string; 'Importo (EUR)': number | string }[];
+  if (fiscalConfig) {
+    const summary = calculateFiscalSummary(totalFiscalRevenue, totalExp, fiscalConfig, paidByType);
+    fiscaleData = [
+      { 'Voce': 'Totale Incassi (incl. preventivi)', 'Importo (EUR)': euroValue(totalRev) },
+      { 'Voce': 'Preventivi (esclusi dal fiscale)', 'Importo (EUR)': euroValue(totalPreventivi) },
+      { 'Voce': 'Fatturato Fiscale', 'Importo (EUR)': euroValue(totalFiscalRevenue) },
+      { 'Voce': `Imponibile lordo (${fiscalConfig.profitability_coefficient}%)`, 'Importo (EUR)': euroValue(summary.taxable_income_gross_cents) },
+      { 'Voce': '- INPS pagato (deducibile)', 'Importo (EUR)': euroValue(summary.inps_paid_cents) },
+      { 'Voce': 'Imponibile netto', 'Importo (EUR)': euroValue(summary.taxable_income_net_cents) },
+      { 'Voce': `Imposta sostitutiva (${fiscalConfig.tax_rate}%)`, 'Importo (EUR)': euroValue(summary.tax_due_cents) },
+      { 'Voce': 'INPS fisso annuo', 'Importo (EUR)': euroValue(summary.inps_fixed_due_cents) },
+      { 'Voce': 'INPS variabile (IVS)', 'Importo (EUR)': euroValue(summary.inps_variable_due_cents) },
+      { 'Voce': 'INPS totale dovuto', 'Importo (EUR)': euroValue(summary.inps_total_due_cents) },
+      { 'Voce': 'TOTALE TASSE DOVUTE', 'Importo (EUR)': euroValue(summary.total_due_cents) },
+      { 'Voce': 'Totale già pagato', 'Importo (EUR)': euroValue(summary.total_paid_cents) },
+      { 'Voce': 'SALDO RESIDUO', 'Importo (EUR)': euroValue(Math.max(0, summary.total_balance_cents)) },
+      { 'Voce': 'Spese operative', 'Importo (EUR)': euroValue(totalExp) },
+      { 'Voce': 'Utile Netto Stimato', 'Importo (EUR)': euroValue(summary.net_profit_cents) },
+      { 'Voce': summary.reduction_35_applied ? 'Riduzione INPS 35% APPLICATA' : 'Riduzione INPS 35% non applicata', 'Importo (EUR)': '' },
+    ];
+  } else {
+    fiscaleData = [{ 'Voce': 'Configurazione fiscale mancante', 'Importo (EUR)': 0 }];
+  }
+
+  // --- Sheet 5: Pagamenti tasse ---
+  const pagamentiData = taxPayments.map((p) => ({
+    'Data Pagamento': p.payment_date,
+    'Tipo': TAX_PAYMENT_LABELS[p.type],
+    'Importo (EUR)': euroValue(p.amount_cents),
+    'Note': p.notes,
+  }));
+  if (pagamentiData.length === 0) {
+    pagamentiData.push({ 'Data Pagamento': '', 'Tipo': '', 'Importo (EUR)': 0, 'Note': '' });
+  }
 
   // Create workbook
   const wb = XLSX.utils.book_new();
@@ -268,17 +331,20 @@ export async function exportExcel(year: number, businessId: number = 1): Promise
   const wsSpese = XLSX.utils.json_to_sheet(speseData.length > 0 ? speseData : [{ 'Data': '', 'Categoria': '', 'Importo (EUR)': '', 'Descrizione': '', 'Note': '' }]);
   const wsRiepilogo = XLSX.utils.json_to_sheet(riepilogoData);
   const wsFiscale = XLSX.utils.json_to_sheet(fiscaleData);
+  const wsPagamenti = XLSX.utils.json_to_sheet(pagamentiData);
 
   // Set column widths
   wsIncassi['!cols'] = [{ wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 30 }];
   wsSpese['!cols'] = [{ wch: 12 }, { wch: 18 }, { wch: 15 }, { wch: 30 }, { wch: 30 }];
   wsRiepilogo['!cols'] = [{ wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }];
-  wsFiscale['!cols'] = [{ wch: 35 }, { wch: 18 }];
+  wsFiscale['!cols'] = [{ wch: 40 }, { wch: 18 }];
+  wsPagamenti['!cols'] = [{ wch: 15 }, { wch: 25 }, { wch: 15 }, { wch: 30 }];
 
   XLSX.utils.book_append_sheet(wb, wsIncassi, 'Incassi');
   XLSX.utils.book_append_sheet(wb, wsSpese, 'Spese');
   XLSX.utils.book_append_sheet(wb, wsRiepilogo, 'Riepilogo Mensile');
   XLSX.utils.book_append_sheet(wb, wsFiscale, 'Fiscale');
+  XLSX.utils.book_append_sheet(wb, wsPagamenti, 'Pagamenti Tasse');
 
   // Generate the file
   const xlsxData = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });

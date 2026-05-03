@@ -1,5 +1,5 @@
 import { getDb } from './database';
-import { DEFAULT_CATEGORIES, DEFAULT_CHANNELS, FORFETTARIO } from './constants';
+import { DEFAULT_CATEGORIES, DEFAULT_CHANNELS, FORFETTARIO, INPS_ARTIGIANI_2026 } from './constants';
 import { euroToCents } from './utils';
 
 /**
@@ -41,15 +41,21 @@ export async function seedDatabase(): Promise<void> {
     );
   }
 
-  // 5. Default fiscal config (forfettario)
+  // 5. Default fiscal config (forfettario + INPS Artigiani 2026)
   await db.execute(
-    `INSERT INTO fiscal_config (business_id, regime, profitability_coefficient, tax_rate, inps_rate, revenue_cap_cents)
-     VALUES (1, 'forfettario', ?, ?, ?, ?)`,
+    `INSERT INTO fiscal_config (
+      business_id, regime, profitability_coefficient, tax_rate, inps_rate, revenue_cap_cents,
+      inps_fixed_annual_cents, inps_minimale_cents, inps_scaglione2_threshold_cents, inps_rate_2, inps_reduction_35
+    ) VALUES (1, 'forfettario', ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
     [
       FORFETTARIO.PROFITABILITY_COEFFICIENT,
       FORFETTARIO.TAX_RATE_NEW,
-      FORFETTARIO.INPS_RATE,
+      INPS_ARTIGIANI_2026.RATE_1,
       FORFETTARIO.REVENUE_CAP_CENTS,
+      INPS_ARTIGIANI_2026.FIXED_ANNUAL_CENTS,
+      INPS_ARTIGIANI_2026.MINIMALE_CENTS,
+      INPS_ARTIGIANI_2026.SCAGLIONE2_THRESHOLD_CENTS,
+      INPS_ARTIGIANI_2026.RATE_2,
     ]
   );
 }

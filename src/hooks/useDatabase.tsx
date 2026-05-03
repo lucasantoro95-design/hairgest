@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type Database from '@tauri-apps/plugin-sql';
 import { getDb, initSchema, isDbSeeded, runMigrations } from '@/lib/database';
 import { seedDatabase } from '@/lib/seed';
+import { preMigrationBackup } from '@/lib/preMigrationBackup';
 
 interface DatabaseContextValue {
   db: Database | null;
@@ -32,6 +33,8 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
         if (!seeded) {
           await seedDatabase();
         } else {
+          // Backup di sicurezza prima di toccare lo schema/dati di un DB esistente
+          await preMigrationBackup();
           await runMigrations();
         }
 

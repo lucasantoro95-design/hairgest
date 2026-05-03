@@ -1,5 +1,12 @@
 import Database from '@tauri-apps/plugin-sql';
-import { DB_NAME, DEFAULT_CATEGORIES, DEFAULT_CHANNELS, FORFETTARIO } from './constants';
+import {
+  DB_NAME,
+  DEFAULT_CATEGORIES,
+  DEFAULT_CHANNELS,
+  FORFETTARIO,
+  INPS_ARTIGIANI_2026,
+  PREVENTIVI_CHANNEL,
+} from './constants';
 
 let db: Database | null = null;
 
@@ -111,7 +118,27 @@ export async function initSchema(): Promise<void> {
       tax_rate INTEGER NOT NULL DEFAULT 5,
       inps_rate INTEGER NOT NULL DEFAULT 24,
       revenue_cap_cents INTEGER NOT NULL DEFAULT 8500000,
+      inps_fixed_annual_cents INTEGER NOT NULL DEFAULT 452136,
+      inps_minimale_cents INTEGER NOT NULL DEFAULT 1880800,
+      inps_scaglione2_threshold_cents INTEGER NOT NULL DEFAULT 5622400,
+      inps_rate_2 INTEGER NOT NULL DEFAULT 25,
+      inps_reduction_35 INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (business_id) REFERENCES businesses(id)
+    );
+  `);
+
+  // Tabella tracciamento manuale pagamenti tasse e contributi
+  await d.execute(`
+    CREATE TABLE IF NOT EXISTS tax_payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      business_id INTEGER NOT NULL,
+      year INTEGER NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('inps_fisso','inps_variabile','imposta_sostitutiva','altro')),
+      amount_cents INTEGER NOT NULL DEFAULT 0,
+      payment_date TEXT NOT NULL,
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (business_id) REFERENCES businesses(id)
     );
   `);
@@ -122,6 +149,7 @@ export async function initSchema(): Promise<void> {
   await d.execute('CREATE INDEX IF NOT EXISTS idx_expenses_business_date ON expenses(business_id, date);');
   await d.execute('CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category_id);');
   await d.execute('CREATE INDEX IF NOT EXISTS idx_monthly_targets_lookup ON monthly_targets(business_id, year);');
+  await d.execute('CREATE INDEX IF NOT EXISTS idx_tax_payments_business_year ON tax_payments(business_id, year);');
 }
 
 export async function isDbSeeded(): Promise<boolean> {
@@ -130,9 +158,18 @@ export async function isDbSeeded(): Promise<boolean> {
   return result[0].count > 0;
 }
 
+/** Verifica se una colonna esiste in una tabella (per migrazioni idempotenti) */
+async function columnExists(d: Database, table: string, column: string): Promise<boolean> {
+  const rows = await d.select<{ name: string }[]>(`PRAGMA table_info(${table})`);
+  return rows.some((r) => r.name === column);
+}
+
 /**
  * Apply idempotent migrations / repairs for existing DBs so newer releases
  * don't leave old users missing default data (new categories, fiscal_config, channels, etc.).
+ *
+ * IMPORTANTE: tutte le operazioni qui devono essere idempotenti e PRESERVARE i dati esistenti.
+ * Questa funzione viene eseguita ogni volta che un DB esistente viene aperto da una nuova versione dell'app.
  */
 export async function runMigrations(): Promise<void> {
   const d = await getDb();
@@ -140,8 +177,55 @@ export async function runMigrations(): Promise<void> {
   const businesses = await d.select<{ id: number }[]>('SELECT id FROM businesses ORDER BY id ASC');
   if (businesses.length === 0) return;
 
+  // === MIGRAZIONE v1.0.5 ===
+  // 1. Aggiungere nuove colonne a fiscal_config se mancanti (default INPS Artigiani 2026)
+  const fiscalNewColumns: { name: string; sql: string }[] = [
+    { name: 'inps_fixed_annual_cents', sql: `ALTER TABLE fiscal_config ADD COLUMN inps_fixed_annual_cents INTEGER NOT NULL DEFAULT ${INPS_ARTIGIANI_2026.FIXED_ANNUAL_CENTS}` },
+    { name: 'inps_minimale_cents', sql: `ALTER TABLE fiscal_config ADD COLUMN inps_minimale_cents INTEGER NOT NULL DEFAULT ${INPS_ARTIGIANI_2026.MINIMALE_CENTS}` },
+    { name: 'inps_scaglione2_threshold_cents', sql: `ALTER TABLE fiscal_config ADD COLUMN inps_scaglione2_threshold_cents INTEGER NOT NULL DEFAULT ${INPS_ARTIGIANI_2026.SCAGLIONE2_THRESHOLD_CENTS}` },
+    { name: 'inps_rate_2', sql: `ALTER TABLE fiscal_config ADD COLUMN inps_rate_2 INTEGER NOT NULL DEFAULT ${INPS_ARTIGIANI_2026.RATE_2}` },
+    { name: 'inps_reduction_35', sql: `ALTER TABLE fiscal_config ADD COLUMN inps_reduction_35 INTEGER NOT NULL DEFAULT 0` },
+  ];
+
+  for (const col of fiscalNewColumns) {
+    const exists = await columnExists(d, 'fiscal_config', col.name);
+    if (!exists) {
+      await d.execute(col.sql);
+    }
+  }
+
+  // 2. Rinominare canale "PRIVATO" → "PREVENTIVI" (preserva tutti i record revenues collegati via channel_id)
   for (const b of businesses) {
-    // Ensure default channels
+    // Solo se esiste ancora un canale "PRIVATO" e NON esiste gia' "PREVENTIVI" per questo business
+    const privato = await d.select<{ id: number }[]>(
+      'SELECT id FROM revenue_channels WHERE business_id = ? AND name = ? LIMIT 1',
+      [b.id, 'PRIVATO']
+    );
+    const preventivi = await d.select<{ id: number }[]>(
+      'SELECT id FROM revenue_channels WHERE business_id = ? AND name = ? LIMIT 1',
+      [b.id, PREVENTIVI_CHANNEL]
+    );
+
+    if (privato.length > 0 && preventivi.length === 0) {
+      // Caso normale: rinomina il canale (mantiene id, quindi tutti i revenues restano collegati)
+      await d.execute(
+        'UPDATE revenue_channels SET name = ? WHERE id = ?',
+        [PREVENTIVI_CHANNEL, privato[0].id]
+      );
+    } else if (privato.length > 0 && preventivi.length > 0) {
+      // Edge case: esistono entrambi (improbabile). Sposta i revenues di PRIVATO su PREVENTIVI e poi elimina PRIVATO.
+      await d.execute(
+        'UPDATE revenues SET channel_id = ? WHERE channel_id = ?',
+        [preventivi[0].id, privato[0].id]
+      );
+      await d.execute('DELETE FROM revenue_channels WHERE id = ?', [privato[0].id]);
+    }
+    // Se non esiste PRIVATO: niente da fare (DB nuovo o gia' migrato)
+  }
+
+  // === DEFAULT DATA REPAIR (esistente, mantenuto) ===
+  for (const b of businesses) {
+    // Ensure default channels (NEGOZIO, PREVENTIVI)
     for (const ch of DEFAULT_CHANNELS) {
       const existing = await d.select<{ id: number }[]>(
         'SELECT id FROM revenue_channels WHERE business_id = ? AND name = ? LIMIT 1',
@@ -155,7 +239,7 @@ export async function runMigrations(): Promise<void> {
       }
     }
 
-    // Ensure default categories (adds new ones like Stipendio/Finanziamenti for old DBs)
+    // Ensure default categories
     for (const cat of DEFAULT_CATEGORIES) {
       const existing = await d.select<{ id: number }[]>(
         'SELECT id FROM expense_categories WHERE business_id = ? AND name = ? LIMIT 1',
@@ -169,16 +253,28 @@ export async function runMigrations(): Promise<void> {
       }
     }
 
-    // Ensure fiscal_config exists
+    // Ensure fiscal_config exists con tutti i default INPS 2026
     const fc = await d.select<{ id: number }[]>(
       'SELECT id FROM fiscal_config WHERE business_id = ? LIMIT 1',
       [b.id]
     );
     if (fc.length === 0) {
       await d.execute(
-        `INSERT INTO fiscal_config (business_id, regime, profitability_coefficient, tax_rate, inps_rate, revenue_cap_cents)
-         VALUES (?, 'forfettario', ?, ?, ?, ?)`,
-        [b.id, FORFETTARIO.PROFITABILITY_COEFFICIENT, FORFETTARIO.TAX_RATE_NEW, FORFETTARIO.INPS_RATE, FORFETTARIO.REVENUE_CAP_CENTS]
+        `INSERT INTO fiscal_config (
+          business_id, regime, profitability_coefficient, tax_rate, inps_rate, revenue_cap_cents,
+          inps_fixed_annual_cents, inps_minimale_cents, inps_scaglione2_threshold_cents, inps_rate_2, inps_reduction_35
+        ) VALUES (?, 'forfettario', ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        [
+          b.id,
+          FORFETTARIO.PROFITABILITY_COEFFICIENT,
+          FORFETTARIO.TAX_RATE_NEW,
+          INPS_ARTIGIANI_2026.RATE_1,
+          FORFETTARIO.REVENUE_CAP_CENTS,
+          INPS_ARTIGIANI_2026.FIXED_ANNUAL_CENTS,
+          INPS_ARTIGIANI_2026.MINIMALE_CENTS,
+          INPS_ARTIGIANI_2026.SCAGLIONE2_THRESHOLD_CENTS,
+          INPS_ARTIGIANI_2026.RATE_2,
+        ]
       );
     }
   }

@@ -9,6 +9,7 @@ import { useExpenses } from '@/hooks/useExpenses';
 import { useMonthlyData } from '@/hooks/useMonthlyData';
 import { useBusinesses } from '@/hooks/useBusinesses';
 import { useFiscal } from '@/hooks/useFiscal';
+import { useTaxPayments } from '@/hooks/useTaxPayments';
 import { formatCurrency, formatPercent } from '@/lib/utils';
 import { calculateFiscalSummary } from '@/lib/calculations';
 import { CURRENT_YEAR, MONTHS_SHORT_IT } from '@/lib/constants';
@@ -24,10 +25,11 @@ import {
 export function Dashboard() {
   const { currentBusiness } = useBusinesses();
   const businessId = currentBusiness?.id ?? 1;
-  const { totalRevenueCents } = useRevenues(businessId, CURRENT_YEAR);
+  const { totalRevenueCents, fiscalRevenueCents } = useRevenues(businessId, CURRENT_YEAR);
   const { totalExpensesCents } = useExpenses(businessId, CURRENT_YEAR);
   const { monthlyData } = useMonthlyData(businessId, CURRENT_YEAR, currentBusiness?.annual_target_cents ?? 0);
   const { config } = useFiscal(businessId);
+  const { paidByType } = useTaxPayments(businessId, CURRENT_YEAR);
 
   const profitCents = totalRevenueCents - totalExpensesCents;
   const targetCents = currentBusiness?.annual_target_cents ?? 0;
@@ -35,8 +37,8 @@ export function Dashboard() {
 
   const fiscal = useMemo(() => {
     if (!config) return null;
-    return calculateFiscalSummary(totalRevenueCents, totalExpensesCents, config);
-  }, [totalRevenueCents, totalExpensesCents, config]);
+    return calculateFiscalSummary(fiscalRevenueCents, totalExpensesCents, config, paidByType);
+  }, [fiscalRevenueCents, totalExpensesCents, config, paidByType]);
 
   return (
     <div>
@@ -67,7 +69,7 @@ export function Dashboard() {
           title="Utile Netto (stima)"
           value={fiscal ? formatCurrency(fiscal.net_profit_cents) : '...'}
           icon={<PiggyBank className="w-5 h-5" />}
-          subtitle={fiscal ? `Tasse stimate: ${formatCurrency(fiscal.total_taxes_cents)}` : undefined}
+          subtitle={fiscal ? `Tasse stimate: ${formatCurrency(fiscal.total_due_cents)}` : undefined}
         />
       </div>
 

@@ -137,52 +137,135 @@ function ProfileTab({ business, onUpdate }: { business: { id: number; name: stri
   );
 }
 
-function FiscaleTab({ config, onUpdate }: { config: { id: number; regime: string; profitability_coefficient: number; tax_rate: number; inps_rate: number; revenue_cap_cents: number }; onUpdate: (id: number, data: Record<string, unknown>) => Promise<void> }) {
+function FiscaleTab({ config, onUpdate }: {
+  config: {
+    id: number;
+    regime: string;
+    profitability_coefficient: number;
+    tax_rate: number;
+    inps_rate: number;
+    revenue_cap_cents: number;
+    inps_fixed_annual_cents: number;
+    inps_minimale_cents: number;
+    inps_scaglione2_threshold_cents: number;
+    inps_rate_2: number;
+    inps_reduction_35: number;
+  };
+  onUpdate: (id: number, data: Record<string, unknown>) => Promise<void>;
+}) {
   const [taxRate, setTaxRate] = useState(config.tax_rate);
   const [inpsRate, setInpsRate] = useState(config.inps_rate);
+  const [inpsRate2, setInpsRate2] = useState(config.inps_rate_2);
   const [coefficient, setCoefficient] = useState(config.profitability_coefficient);
+  const [inpsFixed, setInpsFixed] = useState(config.inps_fixed_annual_cents);
+  const [inpsMinimale, setInpsMinimale] = useState(config.inps_minimale_cents);
+  const [inpsScaglione2, setInpsScaglione2] = useState(config.inps_scaglione2_threshold_cents);
+  const [reduction35, setReduction35] = useState(!!config.inps_reduction_35);
 
   const handleSave = async () => {
     await onUpdate(config.id, {
       tax_rate: taxRate,
       inps_rate: inpsRate,
+      inps_rate_2: inpsRate2,
       profitability_coefficient: coefficient,
+      inps_fixed_annual_cents: inpsFixed,
+      inps_minimale_cents: inpsMinimale,
+      inps_scaglione2_threshold_cents: inpsScaglione2,
+      inps_reduction_35: reduction35 ? 1 : 0,
     });
   };
 
   return (
-    <div className="bg-card rounded-xl border border-border p-6 max-w-2xl">
-      <h3 className="text-lg font-semibold mb-4">Configurazione Fiscale</h3>
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <Label>Regime</Label>
-          <input type="text" value="Forfettario" disabled
-            className="flex h-10 w-full rounded-md border border-input bg-muted px-3 py-2 text-sm" />
+    <div className="bg-card rounded-xl border border-border p-6 max-w-3xl">
+      <h3 className="text-lg font-semibold mb-1">Configurazione Fiscale</h3>
+      <p className="text-xs text-muted-foreground mb-4">
+        Default: Circolare INPS n. 14/2026 - gestione artigiani. Modifica i valori se cambiano nei prossimi anni.
+      </p>
+
+      <div className="space-y-6">
+        {/* Sezione regime */}
+        <div className="space-y-4">
+          <h4 className="text-sm font-semibold text-foreground">Regime</h4>
+          <div className="space-y-2">
+            <Label>Tipo regime</Label>
+            <input type="text" value="Forfettario" disabled
+              className="flex h-10 w-full rounded-md border border-input bg-muted px-3 py-2 text-sm" />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Coefficiente Redditivita' (%)</Label>
+              <input type="number" value={coefficient} onChange={(e) => setCoefficient(Number(e.target.value))}
+                min={1} max={100}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+              <p className="text-xs text-muted-foreground">Codice ATECO parrucchieri: 67%</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Aliquota Imposta Sostitutiva (%)</Label>
+              <input type="number" value={taxRate} onChange={(e) => setTaxRate(Number(e.target.value))}
+                min={1} max={100}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+              <p className="text-xs text-muted-foreground">5% primi 5 anni, 15% successivi</p>
+            </div>
+          </div>
         </div>
-        <div className="grid grid-cols-3 gap-4">
-          <div className="space-y-2">
-            <Label>Coefficiente Redditivita' (%)</Label>
-            <input type="number" value={coefficient} onChange={(e) => setCoefficient(Number(e.target.value))}
-              min={1} max={100}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+
+        {/* Sezione INPS */}
+        <div className="space-y-4 border-t border-border pt-6">
+          <h4 className="text-sm font-semibold text-foreground">INPS Gestione Artigiani</h4>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Contributo fisso annuo</Label>
+              <CurrencyInput value={inpsFixed} onChange={setInpsFixed} />
+              <p className="text-xs text-muted-foreground">2026: 4.521,36 EUR (in 4 rate trimestrali)</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Reddito minimale</Label>
+              <CurrencyInput value={inpsMinimale} onChange={setInpsMinimale} />
+              <p className="text-xs text-muted-foreground">2026: 18.808 EUR (coperto dal fisso)</p>
+            </div>
           </div>
-          <div className="space-y-2">
-            <Label>Aliquota Imposta (%)</Label>
-            <input type="number" value={taxRate} onChange={(e) => setTaxRate(Number(e.target.value))}
-              min={1} max={100}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+          <div className="grid grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Aliquota IVS 1° scaglione (%)</Label>
+              <input type="number" value={inpsRate} onChange={(e) => setInpsRate(Number(e.target.value))}
+                min={1} max={100}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+              <p className="text-xs text-muted-foreground">Sopra il minimale</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Soglia 2° scaglione</Label>
+              <CurrencyInput value={inpsScaglione2} onChange={setInpsScaglione2} />
+              <p className="text-xs text-muted-foreground">2026: 56.224 EUR</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Aliquota IVS 2° scaglione (%)</Label>
+              <input type="number" value={inpsRate2} onChange={(e) => setInpsRate2(Number(e.target.value))}
+                min={1} max={100}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+              <p className="text-xs text-muted-foreground">Oltre la soglia</p>
+            </div>
           </div>
-          <div className="space-y-2">
-            <Label>Aliquota INPS (%)</Label>
-            <input type="number" value={inpsRate} onChange={(e) => setInpsRate(Number(e.target.value))}
-              min={1} max={100}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+
+          <div className="bg-muted rounded-lg p-4">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={reduction35}
+                onChange={(e) => setReduction35(e.target.checked)}
+                className="mt-1 h-4 w-4"
+              />
+              <div>
+                <p className="text-sm font-medium">Riduzione contributi 35% (forfettari)</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Attiva solo se hai presentato la domanda all'INPS entro il 28 febbraio.
+                  La riduzione si applica sia al fisso che al variabile.
+                </p>
+              </div>
+            </label>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Aliquota 5%: primi 5 anni di attivita' (nuova). Aliquota 15%: regime ordinario forfettario.
-        </p>
-        <div className="pt-4">
+
+        <div className="pt-4 border-t border-border">
           <Button onClick={handleSave}>Salva Configurazione</Button>
         </div>
       </div>

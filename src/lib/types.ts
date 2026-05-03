@@ -71,10 +71,34 @@ export interface FiscalConfig {
   business_id: number;
   regime: string; // 'forfettario'
   profitability_coefficient: number; // 67 = 67%
-  tax_rate: number; // 5 = 5%
-  inps_rate: number; // 24 = 24%
+  tax_rate: number; // 5 = 5% primi 5 anni, 15 = 15% successivi
+  inps_rate: number; // aliquota IVS variabile primo scaglione (24% artigiani)
   revenue_cap_cents: number; // 8500000 = 85.000 EUR
+  // Nuovi campi v1.0.5+ (Circolare INPS 14/2026)
+  inps_fixed_annual_cents: number; // 452136 = 4.521,36 EUR contributo fisso annuo
+  inps_minimale_cents: number; // 1880800 = 18.808 EUR
+  inps_scaglione2_threshold_cents: number; // 5622400 = 56.224 EUR
+  inps_rate_2: number; // 25 = 25% sopra il secondo scaglione
+  inps_reduction_35: number; // 0 o 1 — riduzione 35% per forfettari
   updated_at: string;
+}
+
+/** Pagamento manuale tracciato dall'utente (tasse e contributi) */
+export type TaxPaymentType =
+  | 'inps_fisso' // rata trimestrale del contributo fisso
+  | 'inps_variabile' // saldo o acconto IVS variabile
+  | 'imposta_sostitutiva' // saldo o acconto imposta sostitutiva
+  | 'altro';
+
+export interface TaxPayment {
+  id: number;
+  business_id: number;
+  year: number; // anno di riferimento del pagamento
+  type: TaxPaymentType;
+  amount_cents: number;
+  payment_date: string; // YYYY-MM-DD
+  notes: string;
+  created_at: string;
 }
 
 // Computed types
@@ -104,15 +128,32 @@ export interface CategoryBreakdown {
   percentage: number;
 }
 
+/** Riepilogo fiscale con calcolo INPS a scaglioni e deducibilita' contributi pagati */
 export interface FiscalSummary {
-  total_revenue_cents: number;
-  taxable_income_cents: number; // revenue * 67%
-  tax_cents: number; // taxable * 5%
-  inps_cents: number; // taxable * 24%
-  total_taxes_cents: number; // tax + inps
-  net_profit_cents: number; // revenue - expenses - total_taxes
-  suggested_reserve_cents: number; // total_taxes (to set aside)
-  near_cap_warning: boolean;
+  // Input
+  total_revenue_cents: number; // fatturato fiscale (esclude PREVENTIVI)
+  taxable_income_gross_cents: number; // fatturato * coeff. (67%)
+  // INPS
+  inps_fixed_due_cents: number; // contributo fisso annuo (con eventuale riduzione 35%)
+  inps_variable_due_cents: number; // IVS variabile sulla quota oltre minimale
+  inps_total_due_cents: number; // fisso + variabile
+  // INPS pagato (da tax_payments)
+  inps_paid_cents: number; // totale contributi pagati nell'anno (deducibili)
+  // Imposta sostitutiva (calcolata sull'imponibile netto = lordo - inps pagato)
+  taxable_income_net_cents: number; // imponibile dopo deduzione contributi pagati
+  tax_due_cents: number; // imposta sostitutiva dovuta totale
+  tax_paid_cents: number; // imposta sostitutiva gia' versata
+  // Saldi
+  inps_balance_cents: number; // dovuto - pagato (se > 0 = ancora da pagare)
+  tax_balance_cents: number; // dovuto - pagato
+  total_due_cents: number; // tasse + INPS dovuti totali
+  total_paid_cents: number; // tasse + INPS pagati totali
+  total_balance_cents: number; // saldo complessivo
+  // Utile
+  net_profit_cents: number; // fatturato - spese - tasse dovute (stima)
+  // Avvisi
+  near_cap_warning: boolean; // fatturato vicino al limite 85k
+  reduction_35_applied: boolean;
 }
 
 export interface ProjectionData {

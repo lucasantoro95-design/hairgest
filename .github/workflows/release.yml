@@ -46,6 +46,6 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'HairGest ${{ github.ref_name }}'
           releaseBody: 'Aggiornamento HairGest'
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

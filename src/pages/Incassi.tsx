@@ -20,6 +20,8 @@ export function Incassi() {
   const {
     revenues,
     totalRevenueCents,
+    fiscalRevenueCents,
+    preventiviRevenueCents,
     revenueByChannel,
     addRevenue,
     updateRevenue,
@@ -115,17 +117,27 @@ export function Incassi() {
         </Button>
       </Header>
 
-      {/* KPI */}
+      {/* KPI primari (3 a pari livello) */}
       <div className="grid grid-cols-3 gap-4 mb-6">
-        <KpiCard title="Totale Incassi" value={formatCurrency(totalRevenueCents)} />
-        {revenueByChannel.slice(0, 2).map((ch) => (
-          <KpiCard
-            key={ch.channel_id}
-            title={ch.channel_name}
-            value={formatCurrency(ch.total_cents)}
-            subtitle={`${formatPercent(ch.percentage)} del totale`}
-          />
-        ))}
+        <KpiCard
+          title="Totale Incassi"
+          value={formatCurrency(totalRevenueCents)}
+          subtitle="Include preventivi"
+        />
+        <KpiCard
+          title="Fatturato Fiscale"
+          value={formatCurrency(fiscalRevenueCents)}
+          subtitle="Esclude preventivi (base imponibile)"
+        />
+        <KpiCard
+          title="Preventivi"
+          value={formatCurrency(preventiviRevenueCents)}
+          subtitle={
+            totalRevenueCents > 0
+              ? `${formatPercent((preventiviRevenueCents / totalRevenueCents) * 100)} del totale`
+              : 'Non concorrono al fiscale'
+          }
+        />
       </div>
 
       <div className="grid grid-cols-3 gap-6">
